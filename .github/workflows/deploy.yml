@@ -2,10 +2,17 @@ name: Build and Deploy Microservice
 
 on:
   push:
-    branches: [ master ]
+    branches: 
+      - master
+      - main  # Adding main branch as many repositories use main instead of master
     paths:
       - 'microservice/**'
-  workflow_dispatch:
+      - '.github/workflows/**'  # Also trigger on workflow file changes
+  pull_request:
+    branches:
+      - master
+      - main
+  workflow_dispatch:  # Allows manual triggering
 
 jobs:
   build-and-push:
@@ -14,7 +21,23 @@ jobs:
       ENVIRONMENT: dev
     
     steps:
+    - name: Debugging Information
+      run: |
+        echo "Event name: ${{ github.event_name }}"
+        echo "Branch name: ${{ github.ref }}"
+        echo "Repository: ${{ github.repository }}"
+        echo "Workspace: ${{ github.workspace }}"
+        echo "Current directory contents:"
+        ls -la
+
     - uses: actions/checkout@v3
+
+    - name: List Workspace Contents
+      run: |
+        echo "Repository contents:"
+        ls -la
+        echo "Microservice directory contents:"
+        ls -la microservice || echo "Microservice directory not found!"
 
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v1
@@ -30,6 +53,7 @@ jobs:
     - name: Create ECR repository if not exists
       run: |
         REPO_NAME="$ENVIRONMENT-nodejs-microservice"
+        echo "Creating/checking repository: $REPO_NAME"
         aws ecr describe-repositories --repository-names "$REPO_NAME" || \
         aws ecr create-repository --repository-name "$REPO_NAME"
 
@@ -41,6 +65,8 @@ jobs:
       working-directory: ./microservice
       run: |
         echo "Building image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+        echo "Current directory contents:"
+        ls -la
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
         docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
         echo "Pushing images to ECR..."

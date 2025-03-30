@@ -130,13 +130,15 @@ resource "aws_ecs_task_definition" "wordpress" {
   }
 }
 
-/* Commenting out ACM certificate
+# ACM Certificate for SSL
 resource "aws_acm_certificate" "main" {
-  domain_name       = "*.${var.domain_name}"
+  domain_name       = var.domain_name
+  subject_alternative_names = ["*.${var.domain_name}"]
   validation_method = "DNS"
 
   tags = {
     Environment = var.environment
+    Name        = "${var.environment}-acm-cert"
   }
 
   lifecycle {
@@ -144,17 +146,62 @@ resource "aws_acm_certificate" "main" {
   }
 }
 
-output "certificate_validation_instructions" {
-  value = {
+# DNS Validation
+resource "aws_acm_certificate_validation" "main" {
+  certificate_arn         = aws_acm_certificate.main.arn
+  validation_record_fqdns = [for record in aws_route53_record.cert_validation : record.fqdn]
+}
+
+# Route53 Zone Data Source
+data "aws_route53_zone" "main" {
+  name = var.domain_name
+  private_zone = false
+}
+
+# Certificate Validation Records
+resource "aws_route53_record" "cert_validation" {
+  for_each = {
     for dvo in aws_acm_certificate.main.domain_validation_options : dvo.domain_name => {
       name   = dvo.resource_record_name
       record = dvo.resource_record_value
       type   = dvo.resource_record_type
     }
   }
-}
-*/
 
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = data.aws_route53_zone.main.zone_id
+}
+
+# ALB DNS Records
+resource "aws_route53_record" "wordpress" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "wordpress.${var.domain_name}"
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.main.dns_name
+    zone_id                = aws_lb.main.zone_id
+    evaluate_target_health = true
+  }
+}
+
+resource "aws_route53_record" "microservice" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "microservice.${var.domain_name}"
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.main.dns_name
+    zone_id                = aws_lb.main.zone_id
+    evaluate_target_health = true
+  }
+}
+
+# Application Load Balancer
 resource "aws_lb" "main" {
   name               = "${var.environment}-alb"
   internal           = false
@@ -166,6 +213,62 @@ resource "aws_lb" "main" {
 
   tags = {
     Name        = "${var.environment}-alb"
+    Environment = var.environment
+  }
+}
+
+# HTTPS Listener
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = "443"
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-2016-08"
+  certificate_arn   = aws_acm_certificate.main.arn
+
+  default_action {
+    type = "fixed-response"
+    fixed_response {
+      content_type = "text/plain"
+      message_body = "Invalid hostname"
+      status_code  = "404"
+    }
+  }
+}
+
+# HTTP to HTTPS Redirect
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+# Target Groups
+resource "aws_lb_target_group" "wordpress" {
+  name        = "${var.environment}-wordpress-tg"
+  port        = 80
+  protocol    = "HTTP"
+  vpc_id      = var.vpc_id
+  target_type = "ip"
+
+  health_check {
+    path                = "/"
+    healthy_threshold   = 2
+    unhealthy_threshold = 10
+    interval            = 30
+    timeout             = 5
+  }
+
+  tags = {
+    Name        = "${var.environment}-wordpress-tg"
     Environment = var.environment
   }
 }
@@ -191,63 +294,9 @@ resource "aws_lb_target_group" "app" {
   }
 }
 
-resource "aws_lb_target_group" "wordpress" {
-  name        = "${var.environment}-wordpress-tg"
-  port        = 80
-  protocol    = "HTTP"
-  vpc_id      = var.vpc_id
-  target_type = "ip"
-
-  health_check {
-    path                = "/"
-    healthy_threshold   = 2
-    unhealthy_threshold = 10
-    interval            = 30
-    timeout             = 5
-  }
-
-  tags = {
-    Name        = "${var.environment}-wordpress-tg"
-    Environment = var.environment
-  }
-}
-
-/* Commenting out HTTPS listener
-resource "aws_lb_listener" "https" {
-  load_balancer_arn = aws_lb.main.arn
-  port              = "443"
-  protocol          = "HTTPS"
-  ssl_policy        = "ELBSecurityPolicy-2016-08"
-  certificate_arn   = aws_acm_certificate.main.arn
-
-  default_action {
-    type = "fixed-response"
-    fixed_response {
-      content_type = "text/plain"
-      message_body = "Invalid hostname"
-      status_code  = "404"
-    }
-  }
-}
-*/
-
-resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.main.arn
-  port              = "80"
-  protocol          = "HTTP"
-
-  default_action {
-    type = "fixed-response"
-    fixed_response {
-      content_type = "text/plain"
-      message_body = "Invalid hostname"
-      status_code  = "404"
-    }
-  }
-}
-
+# Listener Rules
 resource "aws_lb_listener_rule" "wordpress" {
-  listener_arn = aws_lb_listener.http.arn
+  listener_arn = aws_lb_listener.https.arn
   priority     = 1
 
   action {
@@ -256,14 +305,14 @@ resource "aws_lb_listener_rule" "wordpress" {
   }
 
   condition {
-    path_pattern {
-      values = ["/wordpress/*", "/wordpress"]
+    host_header {
+      values = ["wordpress.${var.domain_name}"]
     }
   }
 }
 
 resource "aws_lb_listener_rule" "microservice" {
-  listener_arn = aws_lb_listener.http.arn
+  listener_arn = aws_lb_listener.https.arn
   priority     = 2
 
   action {
@@ -272,8 +321,8 @@ resource "aws_lb_listener_rule" "microservice" {
   }
 
   condition {
-    path_pattern {
-      values = ["/*"]
+    host_header {
+      values = ["microservice.${var.domain_name}"]
     }
   }
 }
@@ -297,7 +346,7 @@ resource "aws_ecs_service" "app" {
     container_port   = 3000
   }
 
-  depends_on = [aws_lb_listener.http]
+  depends_on = [aws_lb_listener.https]
 
   tags = {
     Name        = "${var.environment}-nodejs-service"
@@ -324,7 +373,7 @@ resource "aws_ecs_service" "wordpress" {
     container_port   = 80
   }
 
-  depends_on = [aws_lb_listener.http]
+  depends_on = [aws_lb_listener.https]
 
   tags = {
     Name        = "${var.environment}-wordpress-service"
