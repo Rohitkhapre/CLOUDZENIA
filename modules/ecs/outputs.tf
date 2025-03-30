@@ -23,6 +23,7 @@ output "target_group_arn" {
   value       = aws_lb_target_group.app.arn
 }
 
+/* Commenting out certificate validation output
 output "certificate_validation_details" {
   description = "Details needed for certificate validation"
   value = {
@@ -33,3 +34,4 @@ output "certificate_validation_details" {
     }
   }
 } 
+*/ 

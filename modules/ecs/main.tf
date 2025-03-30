@@ -130,6 +130,7 @@ resource "aws_ecs_task_definition" "wordpress" {
   }
 }
 
+/* Commenting out ACM certificate
 resource "aws_acm_certificate" "main" {
   domain_name       = "*.${var.domain_name}"
   validation_method = "DNS"
@@ -152,6 +153,7 @@ output "certificate_validation_instructions" {
     }
   }
 }
+*/
 
 resource "aws_lb" "main" {
   name               = "${var.environment}-alb"
@@ -210,6 +212,7 @@ resource "aws_lb_target_group" "wordpress" {
   }
 }
 
+/* Commenting out HTTPS listener
 resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.main.arn
   port              = "443"
@@ -226,9 +229,25 @@ resource "aws_lb_listener" "https" {
     }
   }
 }
+*/
+
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type = "fixed-response"
+    fixed_response {
+      content_type = "text/plain"
+      message_body = "Invalid hostname"
+      status_code  = "404"
+    }
+  }
+}
 
 resource "aws_lb_listener_rule" "wordpress" {
-  listener_arn = aws_lb_listener.https.arn
+  listener_arn = aws_lb_listener.http.arn
   priority     = 1
 
   action {
@@ -237,14 +256,14 @@ resource "aws_lb_listener_rule" "wordpress" {
   }
 
   condition {
-    host_header {
-      values = ["wordpress.${var.domain_name}"]
+    path_pattern {
+      values = ["/wordpress/*", "/wordpress"]
     }
   }
 }
 
 resource "aws_lb_listener_rule" "microservice" {
-  listener_arn = aws_lb_listener.https.arn
+  listener_arn = aws_lb_listener.http.arn
   priority     = 2
 
   action {
@@ -253,23 +272,8 @@ resource "aws_lb_listener_rule" "microservice" {
   }
 
   condition {
-    host_header {
-      values = ["microservice.${var.domain_name}"]
-    }
-  }
-}
-
-resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.main.arn
-  port              = "80"
-  protocol          = "HTTP"
-
-  default_action {
-    type = "redirect"
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
+    path_pattern {
+      values = ["/*"]
     }
   }
 }
@@ -293,7 +297,7 @@ resource "aws_ecs_service" "app" {
     container_port   = 3000
   }
 
-  depends_on = [aws_lb_listener.https]
+  depends_on = [aws_lb_listener.http]
 
   tags = {
     Name        = "${var.environment}-nodejs-service"
@@ -320,7 +324,7 @@ resource "aws_ecs_service" "wordpress" {
     container_port   = 80
   }
 
-  depends_on = [aws_lb_listener.https]
+  depends_on = [aws_lb_listener.http]
 
   tags = {
     Name        = "${var.environment}-wordpress-service"

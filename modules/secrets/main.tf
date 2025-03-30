@@ -18,7 +18,8 @@ resource "random_password" "wordpress_db_password" {
 }
 
 resource "aws_secretsmanager_secret" "db-secrets" {
-  name = "${var.environment}-wordpress-db-credentials"
+  name = "${var.environment}-wordpress-db-credentials-${formatdate("YYYYMMDD-HHmmss", timestamp())}"
+  description = "WordPress database credentials"
   tags = {
     Environment = var.environment
   }
