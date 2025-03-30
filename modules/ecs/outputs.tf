@@ -14,11 +14,22 @@ output "service_name" {
 }
 
 output "alb_dns_name" {
-  description = "DNS name of the Application Load Balancer"
-  value       = aws_lb.app.dns_name
+  description = "The DNS name of the ALB"
+  value       = aws_lb.main.dns_name
 }
 
 output "target_group_arn" {
   description = "ARN of the target group"
   value       = aws_lb_target_group.app.arn
+}
+
+output "certificate_validation_details" {
+  description = "Details needed for certificate validation"
+  value = {
+    for dvo in aws_acm_certificate.main.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
 } 

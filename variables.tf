@@ -56,4 +56,9 @@ variable "db_name" {
   description = "Name of the database"
   type        = string
   default     = "wordpress"
+}
+
+variable "domain_name" {
+  description = "Domain name for the application"
+  type        = string
 } 

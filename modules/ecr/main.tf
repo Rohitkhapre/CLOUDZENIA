@@ -1,18 +1,18 @@
-resource "aws_ecr_repository" "app" {
-  name = "${var.environment}-wordpress-app"
+resource "aws_ecr_repository" "main" {
+  name = "${var.environment}-nodejs-microservice"
   
   image_scanning_configuration {
     scan_on_push = true
   }
 
   tags = {
-    Name        = "${var.environment}-wordpress-app"
+    Name        = "${var.environment}-nodejs-microservice"
     Environment = var.environment
   }
 }
 
 resource "aws_ecr_lifecycle_policy" "app" {
-  repository = aws_ecr_repository.app.name
+  repository = aws_ecr_repository.main.name
 
   policy = jsonencode({
     rules = [

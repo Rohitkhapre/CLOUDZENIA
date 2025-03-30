@@ -46,10 +46,10 @@ module "ecr" {
 module "ecs" {
   source = "./modules/ecs"
 
-  environment           = var.environment
-  vpc_id                = module.networking.vpc_id
-  public_subnet_ids     = module.networking.public_subnet_ids
-  private_subnet_ids    = module.networking.private_subnet_ids
+  environment         = var.environment
+  vpc_id             = module.networking.vpc_id
+  public_subnet_ids  = module.networking.public_subnet_ids
+  private_subnet_ids = module.networking.private_subnet_ids
   ecs_security_group_id = module.security.ecs_security_group_id
   alb_security_group_id = module.security.alb_security_group_id
   ecr_repository_url    = module.ecr.repository_url
@@ -58,6 +58,12 @@ module "ecs" {
   aws_region            = var.aws_region
   execution_role_arn    = aws_iam_role.ecs_execution_role.arn
   task_role_arn         = aws_iam_role.ecs_task_role.arn
+  domain_name           = var.domain_name
+
+  depends_on = [
+    module.networking,
+    module.rds
+  ]
 }
 
 # IAM roles for ECS
